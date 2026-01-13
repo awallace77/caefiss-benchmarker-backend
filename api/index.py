@@ -10,8 +10,7 @@ app = FastAPI()
 
 # List the origins that are allowed to make requests to this API
 origins = [
-    "http://localhost:3001",  # Your frontend port
-    "http://127.0.0.1:3001",
+    "https://caefiss-benchmarker.vercel.app/"
 ]
 
 app.add_middleware(
