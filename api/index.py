@@ -8,7 +8,7 @@ import io
 
 app = FastAPI()
 
-# List the origins that are allowed to make requests to this API
+# List of origins that are allowed to make requests to this API
 origins = [
     "https://caefiss-benchmarker.vercel.app/"
 ]
@@ -21,18 +21,6 @@ app.add_middleware(
     allow_headers=["*"],              # Allows all headers
 )
 
-# --- ENABLE CORS ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # For production, replace with your actual frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Optional: Define a Pydantic model if you want strict validation
-# Or just use "data: dict" in the function signature for flexibility
-
 @app.get("/")
 async def health_check():
     return {"status": "API is running"}
@@ -44,7 +32,6 @@ async def test():
 @app.post("/generate_chart")
 async def generate_chart(data: dict):
     try:
-        # Pass the dictionary directly to your processing function
         image_bytes = process_tickets_from_json(data)
         
         # Encode to Base64 to send back in a JSON response
@@ -58,6 +45,37 @@ async def generate_chart(data: dict):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+    
+def calculate_business_hours(start_time, end_time):
+    """
+    Calculates the number of business hours (8-5, Mon-Fri) between two datetimes.
+    """
+    if pd.isnull(start_time) or pd.isnull(end_time) or start_time > end_time:
+        return 0
+
+    # Define business hours
+    day_start = 8  # 8 AM
+    day_end = 17   # 5 PM
+    hours_per_day = day_end - day_start
+
+    # Generate a range of business days (Mon-Fri)
+    # np.busday_count counts full days between two dates
+    business_days = np.busday_count(start_time.date(), end_time.date())
+
+    # Initial calculation: full business days * 9 hours
+    total_hrs = business_days * hours_per_day
+
+    # Adjust for the partial first day:
+    # Subtract time passed before the ticket started if it started after 8am
+    start_hour = start_time.hour + start_time.minute / 60
+    start_adj = max(0, min(hours_per_day, start_hour - day_start))
+    
+    # Adjust for the partial last day:
+    # Add time passed in the final day up to 5pm
+    end_hour = end_time.hour + end_time.minute / 60
+    end_adj = max(0, min(hours_per_day, end_hour - day_start))
+
+    return total_hrs - start_adj + end_adj
 
 def process_tickets_from_json(data: dict) -> bytes:
     extracted_records = []
@@ -83,13 +101,16 @@ def process_tickets_from_json(data: dict) -> bytes:
     df["doneTriggerTime"] = pd.to_datetime(df["doneTriggerTime"], errors="coerce")
     df["points"] = pd.to_numeric(df["storyPoints"], errors="coerce").fillna(0)
 
-    df["turnaround_hrs"] = (
-        df["doneTriggerTime"] - df["inProgressTriggerTime"]
-    ).dt.total_seconds() / 3600
+    # --- Business Hours Calculation ---
+    df["turnaround_hrs"] = df.apply(
+        lambda row: calculate_business_hours(row["inProgressTriggerTime"], row["doneTriggerTime"]), 
+        axis=1
+    )
 
+    # --- Drop empty values ---
     df = df.dropna(subset=["turnaround_hrs"])
 
-    # --- Aggregation ---
+    # --- Aggregation (by story points) ---
     stats_df = (
         df.groupby("points")["turnaround_hrs"]
         .mean()
