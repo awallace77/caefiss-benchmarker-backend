@@ -5,12 +5,13 @@ import base64
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
+import numpy as np
 
 app = FastAPI()
 
 # List of origins that are allowed to make requests to this API
 origins = [
-    "https://caefiss-benchmarker.vercel.app"
+    "https://caefiss-benchmarker.vercel.app",
 ]
 
 app.add_middleware(
@@ -32,6 +33,7 @@ async def test():
 @app.post("/generate_chart")
 async def generate_chart(data: dict):
     try:
+        print("Processing tickets")
         image_bytes = process_tickets_from_json(data)
         
         # Encode to Base64 to send back in a JSON response
@@ -92,16 +94,19 @@ def process_tickets_from_json(data: dict) -> bytes:
                         continue
 
     if not extracted_records:
+        print("Could not extract records")
         raise ValueError("No valid ticket log data found")
 
     df = pd.DataFrame(extracted_records)
 
     # --- Data cleaning ---
+    print("Cleaning Data")
     df["inProgressTriggerTime"] = pd.to_datetime(df["inProgressTriggerTime"], errors="coerce")
     df["doneTriggerTime"] = pd.to_datetime(df["doneTriggerTime"], errors="coerce")
     df["points"] = pd.to_numeric(df["storyPoints"], errors="coerce").fillna(0)
 
     # --- Business Hours Calculation ---
+    print("Calc business hours")
     df["turnaround_hrs"] = df.apply(
         lambda row: calculate_business_hours(row["inProgressTriggerTime"], row["doneTriggerTime"]), 
         axis=1
