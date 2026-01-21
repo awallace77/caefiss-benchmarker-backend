@@ -10,7 +10,7 @@ app = FastAPI()
 
 # List of origins that are allowed to make requests to this API
 origins = [
-    "https://caefiss-benchmarker.vercel.app/"
+    "https://caefiss-benchmarker.vercel.app"
 ]
 
 app.add_middleware(
